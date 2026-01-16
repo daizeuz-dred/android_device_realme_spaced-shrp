@@ -1,0 +1,62 @@
+name: SHRP Build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-20.04
+    permissions:
+      contents: write
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v3
+
+    - name: Cleanup and Setup Environment
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gperf gcc-multilib gcc-10-multilib g++-multilib g++-10-multilib libc6-dev-i386 lib32ncurses5-dev x11proto-core-dev libx11-dev lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc unzip bc
+        # Free up space
+        sudo rm -rf /usr/share/dotnet /etc/mysql /usr/local/lib/android
+        docker rmi $(docker images -q)
+
+    - name: Install Repo
+      run: |
+        mkdir ~/bin
+        curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
+        chmod a+x ~/bin/repo
+        sudo ln -sf ~/bin/repo /usr/bin/repo
+
+    - name: Initialize SHRP Manifest
+      run: |
+        mkdir shrp
+        cd shrp
+        git config --global user.name "Github Action"
+        git config --global user.email "action@github.com"
+        # Sync SHRP Android 12.1 Minimal Manifest
+        repo init --depth=1 -u https://github.com/SHRP/manifest.git -b shrp-12.1
+        repo sync -j$(nproc --all) --force-sync --no-tags --no-clone-bundle
+
+    - name: Clone Device Tree
+      run: |
+        # ADJUST THESE PATHS:
+        # Destination: device/<brand>/<codename>
+        # URL: Your current repository URL
+        git clone https://github.com/${{ github.repository }} -b main shrp/device/art/pb_spaced
+
+    - name: Build SHRP
+      run: |
+        cd shrp
+        source build/envsetup.sh
+        # Replace 'pb_spaced' with the lunch combo name found in your AndroidProducts.mk
+        export ALLOW_MISSING_DEPENDENCIES=true
+        lunch twrp_pb_spaced-eng 
+        mka recoveryimage -j$(nproc --all)
+
+    - name: Upload Recovery Image
+      uses: actions/upload-artifact@v3
+      with:
+        name: SHRP-Recovery
+        path: |
+          shrp/out/target/product/pb_spaced/SHRP*.zip
+          shrp/out/target/product/pb_spaced/recovery.img
