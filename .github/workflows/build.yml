@@ -44,8 +44,8 @@ jobs:
 
     - name: Clone Device Tree
       run: |
-        # Correct path for your specific device tree
-        git clone https://github.com/${{ github.repository }} -b main shrp/device/art/pb_spaced
+        # We must use device/realme/spaced because your mk files reference this path
+        git clone https://github.com/${{ github.repository }} -b main shrp/device/realme/spaced
 
     - name: Build SHRP
       run: |
@@ -53,7 +53,8 @@ jobs:
         source build/envsetup.sh
         export ALLOW_MISSING_DEPENDENCIES=true
         
-        # Based on your pb_spaced.mk file
+        # Based on your logs, the system is looking for 'twrp_pb_spaced'
+        # We'll try the most likely lunch targets for your tree
         lunch twrp_pb_spaced-eng || lunch shrp_pb_spaced-eng || lunch pb_spaced-eng
         
         mka recoveryimage -j$(nproc --all)
