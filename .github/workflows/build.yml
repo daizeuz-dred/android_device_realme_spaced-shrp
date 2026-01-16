@@ -1,4 +1,4 @@
-name: SHRP Build (Updated)
+name: SHRP Build (Fixed Python)
 
 on:
   workflow_dispatch:
@@ -12,16 +12,28 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Cleanup and Setup Environment
+    - name: Setup Legacy Python 2.7
       run: |
         sudo apt-get update
-        # Added python2.7 and python-is-python3 isn't enough, we need to symlink python2
-        sudo apt-get install -y gperf gcc-multilib g++-multilib libc6-dev-i386 lib32ncurses-dev x11proto-core-dev libx11-dev lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc unzip bc python3 python2.7
+        # Download Python 2.7 and dependencies from Ubuntu 22.04 mirrors
+        wget http://archive.ubuntu.com/ubuntu/pool/universe/p/python2.7/python2.7-minimal_2.7.18-13ubuntu1.1_amd64.deb
+        wget http://archive.ubuntu.com/ubuntu/pool/universe/p/python2.7/libpython2.7-minimal_2.7.18-13ubuntu1.1_amd64.deb
+        wget http://archive.ubuntu.com/ubuntu/pool/universe/p/python2.7/python2.7_2.7.18-13ubuntu1.1_amd64.deb
+        wget http://archive.ubuntu.com/ubuntu/pool/universe/p/python2.7/libpython2.7-stdlib_2.7.18-13ubuntu1.1_amd64.deb
         
-        # Link python2.7 so the build system finds it (required for Android 12 scripts)
+        # Install them in order
+        sudo apt-get install -y ./libpython2.7-minimal_2.7.18-13ubuntu1.1_amd64.deb ./python2.7-minimal_2.7.18-13ubuntu1.1_amd64.deb ./libpython2.7-stdlib_2.7.18-13ubuntu1.1_amd64.deb ./python2.7_2.7.18-13ubuntu1.1_amd64.deb
+        
+        # Link to /usr/bin/python for the build system
         sudo ln -sf /usr/bin/python2.7 /usr/bin/python
+        sudo ln -sf /usr/bin/python2.7 /usr/bin/python2
+
+    - name: Install Build Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gperf gcc-multilib g++-multilib libc6-dev-i386 lib32ncurses-dev x11proto-core-dev libx11-dev lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc unzip bc python3
         
-        # Free up space
+        # Clear space for the 100GB+ build
         sudo rm -rf /usr/share/dotnet /etc/mysql /usr/local/lib/android /opt/ghc /usr/local/share/powershell /usr/share/swift
         docker rmi $(docker images -q) || true
 
@@ -43,7 +55,7 @@ jobs:
 
     - name: Clone Device Tree
       run: |
-        # Path updated to device/art/pb_spaced based on your pb_spaced.mk file
+        # Fixed path to match your pb_spaced.mk
         git clone https://github.com/${{ github.repository }} -b main shrp/device/art/pb_spaced
 
     - name: Build SHRP
@@ -52,9 +64,8 @@ jobs:
         source build/envsetup.sh
         export ALLOW_MISSING_DEPENDENCIES=true
         
-        # Using the correct product name 'pb_spaced'
-        # Prefixes can be 'shrp_', 'twrp_', or nothing depending on your .mk content
-        lunch shrp_pb_spaced-eng || lunch twrp_pb_spaced-eng || lunch pb_spaced-eng
+        # Using the correct product name from your .mk file
+        lunch twrp_pb_spaced-eng || lunch shrp_pb_spaced-eng || lunch pb_spaced-eng
         
         mka recoveryimage -j$(nproc --all)
 
