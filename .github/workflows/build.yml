@@ -15,9 +15,13 @@ jobs:
     - name: Cleanup and Setup Environment
       run: |
         sudo apt-get update
-        # Ubuntu 20.04 has python2.7 and all needed libs by default
-        sudo apt-get install -y gperf gcc-multilib g++-multilib libc6-dev-i386 lib32ncurses5-dev x11proto-core-dev libx11-dev lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc unzip bc python2.7 python-is-python2
+        # Install python2.7 and dependencies
+        sudo apt-get install -y gperf gcc-multilib g++-multilib libc6-dev-i386 lib32ncurses5-dev x11proto-core-dev libx11-dev lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc unzip bc python2.7
         
+        # Manually create the symlink that 'python-is-python2' used to provide
+        sudo ln -sf /usr/bin/python2.7 /usr/bin/python
+        sudo ln -sf /usr/bin/python2.7 /usr/bin/python2
+
         # Massive cleanup to ensure we have ~70GB+ free space
         sudo rm -rf /usr/share/dotnet /etc/mysql /usr/local/lib/android /opt/ghc /usr/local/share/powershell /usr/share/swift
         docker rmi $(docker images -q) || true
