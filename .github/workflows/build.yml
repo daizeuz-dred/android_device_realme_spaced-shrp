@@ -42,10 +42,13 @@ jobs:
         repo init --depth=1 -u https://github.com/SHRP/manifest.git -b shrp-12.1
         repo sync -j$(nproc --all) --force-sync --no-tags --no-clone-bundle
 
-    - name: Clone Device Tree
+    - name: Clone Device Tree and PBRP Dependencies
       run: |
-        # We must use device/realme/spaced because your mk files reference this path
+        # 1. Clone your device tree to the path your files expect
         git clone https://github.com/${{ github.repository }} -b main shrp/device/realme/spaced
+        
+        # 2. Clone the missing PBRP vendor config (required by your pb_spaced.mk)
+        git clone https://github.com/PitchBlackRecoveryProject/vendor_pb -b pb shrp/vendor/pb
 
     - name: Build SHRP
       run: |
@@ -53,9 +56,9 @@ jobs:
         source build/envsetup.sh
         export ALLOW_MISSING_DEPENDENCIES=true
         
-        # Based on your logs, the system is looking for 'twrp_pb_spaced'
-        # We'll try the most likely lunch targets for your tree
-        lunch twrp_pb_spaced-eng || lunch shrp_pb_spaced-eng || lunch pb_spaced-eng
+        # We use 'pb_spaced' because that is the name of your .mk file
+        # PBRP/SHRP usually prefixes the product name
+        lunch shrp_pb_spaced-eng || lunch twrp_pb_spaced-eng || lunch pb_spaced-eng
         
         mka recoveryimage -j$(nproc --all)
 
