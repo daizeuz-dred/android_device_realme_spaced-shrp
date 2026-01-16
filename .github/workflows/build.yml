@@ -15,10 +15,13 @@ jobs:
     - name: Cleanup and Setup Environment
       run: |
         sudo apt-get update
-        # Adjusted for Ubuntu 24.04 (Noble) compatibility
-        sudo apt-get install -y gperf gcc-multilib g++-multilib libc6-dev-i386 lib32ncurses-dev x11proto-core-dev libx11-dev lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc unzip bc python3
+        # Added python2.7 and python-is-python3 isn't enough, we need to symlink python2
+        sudo apt-get install -y gperf gcc-multilib g++-multilib libc6-dev-i386 lib32ncurses-dev x11proto-core-dev libx11-dev lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc unzip bc python3 python2.7
         
-        # Free up as much space as possible
+        # Link python2.7 so the build system finds it (required for Android 12 scripts)
+        sudo ln -sf /usr/bin/python2.7 /usr/bin/python
+        
+        # Free up space
         sudo rm -rf /usr/share/dotnet /etc/mysql /usr/local/lib/android /opt/ghc /usr/local/share/powershell /usr/share/swift
         docker rmi $(docker images -q) || true
 
@@ -40,16 +43,19 @@ jobs:
 
     - name: Clone Device Tree
       run: |
-        # This clones your current repo into the correct SHRP folder structure
-        git clone https://github.com/${{ github.repository }} -b main shrp/device/realme/spaced
+        # Path updated to device/art/pb_spaced based on your pb_spaced.mk file
+        git clone https://github.com/${{ github.repository }} -b main shrp/device/art/pb_spaced
 
     - name: Build SHRP
       run: |
         cd shrp
         source build/envsetup.sh
         export ALLOW_MISSING_DEPENDENCIES=true
-        # Adjusting lunch target based on your repo name 'realme_spaced'
-        lunch twrp_spaced-eng || lunch shrp_spaced-eng
+        
+        # Using the correct product name 'pb_spaced'
+        # Prefixes can be 'shrp_', 'twrp_', or nothing depending on your .mk content
+        lunch shrp_pb_spaced-eng || lunch twrp_pb_spaced-eng || lunch pb_spaced-eng
+        
         mka recoveryimage -j$(nproc --all)
 
     - name: Upload Recovery Artifacts
@@ -57,5 +63,5 @@ jobs:
       with:
         name: SHRP-Build-Spaced
         path: |
-          shrp/out/target/product/spaced/SHRP*.zip
-          shrp/out/target/product/spaced/recovery.img
+          shrp/out/target/product/pb_spaced/SHRP*.zip
+          shrp/out/target/product/pb_spaced/recovery.img
