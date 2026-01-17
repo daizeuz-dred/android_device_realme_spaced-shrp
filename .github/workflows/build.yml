@@ -15,12 +15,14 @@ jobs:
     - name: Cleanup and Setup Environment
       run: |
         sudo apt-get update
-        # Install python2.7 and dependencies
-        sudo apt-get install -y gperf gcc-multilib g++-multilib libc6-dev-i386 lib32ncurses5-dev x11proto-core-dev libx11-dev lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc unzip bc python2.7
+        sudo apt-get install -y gperf gcc-multilib g++-multilib libc6-dev-i386 lib32ncurses5-dev x11proto-core-dev libx11-dev lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc unzip bc python2.7 python-is-python2
         
-        # Manually create the symlink that 'python-is-python2' used to provide
-        sudo ln -sf /usr/bin/python2.7 /usr/bin/python
-        sudo ln -sf /usr/bin/python2.7 /usr/bin/python2
+        # INCREASE SWAP: This prevents the 'Lost Communication' (OOM) error
+        sudo swapoff -a
+        sudo dd if=/dev/zero of=/swapfile bs=1G count=8
+        sudo chmod 600 /swapfile
+        sudo mkswap /swapfile
+        sudo swapon /swapfile
 
         # Massive cleanup to ensure we have ~70GB+ free space
         sudo rm -rf /usr/share/dotnet /etc/mysql /usr/local/lib/android /opt/ghc /usr/local/share/powershell /usr/share/swift
@@ -56,34 +58,28 @@ jobs:
         git clone https://github.com/${{ github.repository }} -b main shrp/device/realme/spaced
         git clone https://github.com/PitchBlackRecoveryProject/vendor_pb -b pb shrp/vendor/pb
 
-        # 1. FIX: Obsolete MD5SUM
+        # FIX: MD5SUM and missing utils
         sed -i 's/MD5SUM :=/MD5SUM_DISABLED :=/g' shrp/vendor/pb/build/tasks/cookies.mk
-        sed -i 's/$(MD5SUM)/# disabled/g' shrp/vendor/pb/build/tasks/cookies.mk
-
-        # 2. FIX: Dependency libfscrypttwrp (Force inject into BoardConfig)
-        # We use a single block to ensure these are at the top of the file
-        sed -i '1i TW_INCLUDE_CRYPTO := true' shrp/device/realme/spaced/BoardConfig.mk
-        sed -i '2i TW_INCLUDE_FBE_METADATA_DECRYPT := true' shrp/device/realme/spaced/BoardConfig.mk
-        sed -i '3i PLATFORM_VERSION := 12.1' shrp/device/realme/spaced/BoardConfig.mk
-        
-        # 3. FIX: Create dummy files for missing vendor scripts
         mkdir -p shrp/vendor/utils
         echo "def main(): pass" > shrp/vendor/utils/pb_devices.py
+
+        # FIX: Injecting encryption flags at the VERY TOP of BoardConfig
+        # We use a temp file to ensure they are the first things the compiler sees
+        echo "TW_INCLUDE_CRYPTO := true" > BoardConfig.tmp
+        echo "TW_INCLUDE_FBE_METADATA_DECRYPT := true" >> BoardConfig.tmp
+        cat shrp/device/realme/spaced/BoardConfig.mk >> BoardConfig.tmp
+        mv BoardConfig.tmp shrp/device/realme/spaced/BoardConfig.mk
         
     - name: Build SHRP
       run: |
         cd shrp
-        # Final cleanup of conflicting tasks
         rm -f vendor/pb/build/tasks/kernel.mk
-        
         source build/envsetup.sh
         export ALLOW_MISSING_DEPENDENCIES=true
-        
-        # This is the lunch target that worked in your last log
         lunch pb_spaced-eng
         
-        # Using -j2 to be safe with RAM while building encryption libs
-        mka recoveryimage -j2
+        # -j1 is slow but the SAFEST way to avoid the runner losing communication
+        mka recoveryimage -j$(nproc --all) || mka recoveryimage -j1
         
     - name: Upload Recovery Artifacts
       uses: actions/upload-artifact@v4
