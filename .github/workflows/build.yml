@@ -59,31 +59,37 @@ jobs:
 
     - name: Clone Device Tree and PBRP Dependencies
       run: |
+        # 1. Clone Device Tree
         git clone https://github.com/${{ github.repository }} -b main shrp/device/realme/spaced
+        
+        # 2. Clone PBRP Vendor
         git clone https://github.com/PitchBlackRecoveryProject/vendor_pb -b pb shrp/vendor/pb
 
-        # FIX: MD5SUM and missing utils
-        sed -i 's/MD5SUM :=/MD5SUM_DISABLED :=/g' shrp/vendor/pb/build/tasks/cookies.mk
+        # 3. CRITICAL FIX: Rename MD5SUM to bypass the 'obsolete' error
+        # We rename the variable definition to MD5SUM_VAR so Kati doesn't panic
+        sed -i 's/MD5SUM :=/MD5SUM_VAR :=/g' shrp/vendor/pb/build/tasks/cookies.mk
+        
+        # We replace the usage of $(MD5SUM) with 'true' so the script doesn't crash
+        sed -i 's/$(MD5SUM)/true/g' shrp/vendor/pb/build/tasks/cookies.mk
+
+        # 4. Create dummy utils to prevent missing file error
         mkdir -p shrp/vendor/utils
         echo "def main(): pass" > shrp/vendor/utils/pb_devices.py
-
-        # FIX: Injecting encryption flags at the VERY TOP of BoardConfig
-        # We use a temp file to ensure they are the first things the compiler sees
-        echo "TW_INCLUDE_CRYPTO := true" > BoardConfig.tmp
-        echo "TW_INCLUDE_FBE_METADATA_DECRYPT := true" >> BoardConfig.tmp
-        cat shrp/device/realme/spaced/BoardConfig.mk >> BoardConfig.tmp
-        mv BoardConfig.tmp shrp/device/realme/spaced/BoardConfig.mk
         
     - name: Build SHRP
       run: |
         cd shrp
+        
+        # Remove conflicting kernel task
         rm -f vendor/pb/build/tasks/kernel.mk
+        
         source build/envsetup.sh
         export ALLOW_MISSING_DEPENDENCIES=true
+        
         lunch pb_spaced-eng
         
-        # -j1 is slow but the SAFEST way to avoid the runner losing communication
-        mka recoveryimage -j$(nproc --all) || mka recoveryimage -j1
+        # Use -j2 or -j1 to save RAM
+        mka recoveryimage -j1
         
     - name: Upload Recovery Artifacts
       uses: actions/upload-artifact@v4
