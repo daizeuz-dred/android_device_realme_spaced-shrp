@@ -57,30 +57,38 @@ jobs:
         repo init --depth=1 -u https://github.com/SHRP/manifest.git -b shrp-12.1
         repo sync -j$(nproc --all) --force-sync --no-tags --no-clone-bundle
 
-    - name: Clone Device Tree and PBRP Dependencies
+    - name: Clone Device Tree and Dependencies
       run: |
-        # 1. Clone Device Tree
+        # 1. Clone your device tree
         git clone https://github.com/${{ github.repository }} -b main shrp/device/realme/spaced
         
-        # 2. Clone PBRP Vendor
+        # 2. Clone PBRP Vendor (needed for your tree's config)
         git clone https://github.com/PitchBlackRecoveryProject/vendor_pb -b pb shrp/vendor/pb
 
-        # 3. CRITICAL FIX: Rename MD5SUM to bypass the 'obsolete' error
-        # We rename the variable definition to MD5SUM_VAR so Kati doesn't panic
+        # 3. MANUALLY CLONE THE MISSING CRYPTO LIB
+        # This ensures the source code for libfscrypt is actually there
+        git clone https://github.com/TeamWin/external_fscrypt -b android-12.1 shrp/external/fscrypt
+
+        # 4. FIX: Rename the module so the build system finds 'libfscrypttwrp'
+        # This changes the internal name in the build file from libfscrypt to libfscrypttwrp
+        sed -i 's/name: "libfscrypt"/name: "libfscrypttwrp"/g' shrp/external/fscrypt/Android.bp
+
+        # 5. FIX: Obsolete MD5SUM
         sed -i 's/MD5SUM :=/MD5SUM_VAR :=/g' shrp/vendor/pb/build/tasks/cookies.mk
-        
-        # We replace the usage of $(MD5SUM) with 'true' so the script doesn't crash
         sed -i 's/$(MD5SUM)/true/g' shrp/vendor/pb/build/tasks/cookies.mk
 
-        # 4. Create dummy utils to prevent missing file error
-        mkdir -p shrp/vendor/utils
-        echo "def main(): pass" > shrp/vendor/utils/pb_devices.py
-        
+        # 6. FIX: Inject Crypto flags at the TOP of BoardConfig
+        echo "TW_INCLUDE_CRYPTO := true" > BoardConfig.tmp
+        echo "TW_INCLUDE_FBE_METADATA_DECRYPT := true" >> BoardConfig.tmp
+        cat shrp/device/realme/spaced/BoardConfig.mk >> BoardConfig.tmp
+        mv BoardConfig.tmp shrp/device/realme/spaced/BoardConfig.mk
+
     - name: Build SHRP
       run: |
         cd shrp
-        
-        # Remove conflicting kernel task
+        # Final cleanup of conflicting scripts
+        mkdir -p vendor/utils
+        echo "def main(): pass" > vendor/utils/pb_devices.py
         rm -f vendor/pb/build/tasks/kernel.mk
         
         source build/envsetup.sh
@@ -88,13 +96,5 @@ jobs:
         
         lunch pb_spaced-eng
         
-        # Use -j2 or -j1 to save RAM
-        mka recoveryimage -j1
-        
-    - name: Upload Recovery Artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: SHRP-Recovery-Spaced
-        path: |
-          shrp/out/target/product/pb_spaced/SHRP*.zip
-          shrp/out/target/product/pb_spaced/recovery.img
+        # Build with 2 threads to prevent the "Lost Communication" crash
+        mka recoveryimage -j2
