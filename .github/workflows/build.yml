@@ -15,16 +15,20 @@ jobs:
     - name: Cleanup and Setup Environment
       run: |
         sudo apt-get update
-        sudo apt-get install -y gperf gcc-multilib g++-multilib libc6-dev-i386 lib32ncurses5-dev x11proto-core-dev libx11-dev lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc unzip bc python2.7 python-is-python2
+        # Install python2.7 and other build essentials (removed python-is-python2)
+        sudo apt-get install -y gperf gcc-multilib g++-multilib libc6-dev-i386 lib32ncurses5-dev x11proto-core-dev libx11-dev lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc unzip bc python2.7
         
-        # INCREASE SWAP: This prevents the 'Lost Communication' (OOM) error
+        # MANUAL FIX: Create the 'python' symlink for Python 2.7
+        sudo ln -sf /usr/bin/python2.7 /usr/bin/python
+        
+        # INCREASE SWAP: Critical to prevent 'Lost Communication' (OOM) errors
         sudo swapoff -a
         sudo dd if=/dev/zero of=/swapfile bs=1G count=8
         sudo chmod 600 /swapfile
         sudo mkswap /swapfile
         sudo swapon /swapfile
 
-        # Massive cleanup to ensure we have ~70GB+ free space
+        # Free up disk space (~70GB+ free)
         sudo rm -rf /usr/share/dotnet /etc/mysql /usr/local/lib/android /opt/ghc /usr/local/share/powershell /usr/share/swift
         docker rmi $(docker images -q) || true
     
