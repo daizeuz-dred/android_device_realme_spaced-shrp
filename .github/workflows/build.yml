@@ -25,6 +25,15 @@ jobs:
         # Massive cleanup to ensure we have ~70GB+ free space
         sudo rm -rf /usr/share/dotnet /etc/mysql /usr/local/lib/android /opt/ghc /usr/local/share/powershell /usr/share/swift
         docker rmi $(docker images -q) || true
+    
+    - name: Maximize Build Space
+      uses: easimon/maximize-build-space@master
+      with:
+        root-reserve-mb: 512
+        swap-size-mb: 1024
+        remove-dotnet: 'true'
+        remove-android: 'true'
+        remove-haskell: 'true'
 
     - name: Install Repo
       run: |
@@ -47,14 +56,16 @@ jobs:
         git clone https://github.com/${{ github.repository }} -b main shrp/device/realme/spaced
         git clone https://github.com/PitchBlackRecoveryProject/vendor_pb -b pb shrp/vendor/pb
 
-        # FIX 1: Remove obsolete MD5SUM
+        # FIX 1: Remove obsolete MD5SUM (the previous error)
         sed -i 's/MD5SUM :=/MD5SUM_DISABLED :=/g' shrp/vendor/pb/build/tasks/cookies.mk
         sed -i 's/$(MD5SUM)/# disabled/g' shrp/vendor/pb/build/tasks/cookies.mk
 
-        # FIX 2: Add missing encryption flag to BoardConfig
-        # This resolves the 'missing dependencies: libfscrypttwrp' error
+        # FIX 2: Inject Encryption Dependencies
+        # This forces the build system to include libfscrypttwrp
         echo "TW_INCLUDE_CRYPTO := true" >> shrp/device/realme/spaced/BoardConfig.mk
         echo "TW_INCLUDE_FBE_METADATA_DECRYPT := true" >> shrp/device/realme/spaced/BoardConfig.mk
+        echo "PLATFORM_VERSION := 12.1" >> shrp/device/realme/spaced/BoardConfig.mk
+        echo "PLATFORM_SDK_VERSION := 32" >> shrp/device/realme/spaced/BoardConfig.mk
 
     - name: Build SHRP
       run: |
