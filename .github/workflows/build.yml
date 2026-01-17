@@ -53,38 +53,38 @@ jobs:
 
     - name: Clone Device Tree and PBRP Dependencies
       run: |
-        # 1. Clone device tree to the specific path required
         git clone https://github.com/${{ github.repository }} -b main shrp/device/realme/spaced
-        
-        # 2. Clone the PBRP vendor config (using 'pb' branch as base)
         git clone https://github.com/PitchBlackRecoveryProject/vendor_pb -b pb shrp/vendor/pb
 
-        # FIX 1: Remove obsolete MD5SUM
+        # 1. FIX: Obsolete MD5SUM
         sed -i 's/MD5SUM :=/MD5SUM_DISABLED :=/g' shrp/vendor/pb/build/tasks/cookies.mk
         sed -i 's/$(MD5SUM)/# disabled/g' shrp/vendor/pb/build/tasks/cookies.mk
 
-        # FIX 2: Inject ONLY the crypto flags (SDK version is already set by manifest)
-        echo "TW_INCLUDE_CRYPTO := true" >> shrp/device/realme/spaced/BoardConfig.mk
-        echo "TW_INCLUDE_FBE_METADATA_DECRYPT := true" >> shrp/device/realme/spaced/BoardConfig.mk
-
+        # 2. FIX: Dependency libfscrypttwrp (Force inject into BoardConfig)
+        # We use a single block to ensure these are at the top of the file
+        sed -i '1i TW_INCLUDE_CRYPTO := true' shrp/device/realme/spaced/BoardConfig.mk
+        sed -i '2i TW_INCLUDE_FBE_METADATA_DECRYPT := true' shrp/device/realme/spaced/BoardConfig.mk
+        sed -i '3i PLATFORM_VERSION := 12.1' shrp/device/realme/spaced/BoardConfig.mk
+        
+        # 3. FIX: Create dummy files for missing vendor scripts
+        mkdir -p shrp/vendor/utils
+        echo "def main(): pass" > shrp/vendor/utils/pb_devices.py
+        
     - name: Build SHRP
       run: |
         cd shrp
-        # FIX 3: Create the missing utils directory if it doesn't exist to prevent script errors
-        mkdir -p vendor/utils
-        touch vendor/utils/pb_devices.py 
-        
-        # Remove conflicting PBRP kernel tasks
+        # Final cleanup of conflicting tasks
         rm -f vendor/pb/build/tasks/kernel.mk
         
         source build/envsetup.sh
         export ALLOW_MISSING_DEPENDENCIES=true
         
-        # Lunch target - using the product name defined in your .mk files
-        lunch twrp_pb_spaced-eng || lunch shrp_pb_spaced-eng || lunch pb_spaced-eng
+        # This is the lunch target that worked in your last log
+        lunch pb_spaced-eng
         
-        mka recoveryimage -j$(nproc --all)
-
+        # Using -j2 to be safe with RAM while building encryption libs
+        mka recoveryimage -j2
+        
     - name: Upload Recovery Artifacts
       uses: actions/upload-artifact@v4
       with:
