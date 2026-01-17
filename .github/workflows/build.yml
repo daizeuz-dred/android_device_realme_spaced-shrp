@@ -53,33 +53,36 @@ jobs:
 
     - name: Clone Device Tree and PBRP Dependencies
       run: |
+        # 1. Clone device tree to the specific path required
         git clone https://github.com/${{ github.repository }} -b main shrp/device/realme/spaced
+        
+        # 2. Clone the PBRP vendor config (using 'pb' branch as base)
         git clone https://github.com/PitchBlackRecoveryProject/vendor_pb -b pb shrp/vendor/pb
 
-        # FIX 1: Remove obsolete MD5SUM (the previous error)
+        # FIX 1: Remove obsolete MD5SUM
         sed -i 's/MD5SUM :=/MD5SUM_DISABLED :=/g' shrp/vendor/pb/build/tasks/cookies.mk
         sed -i 's/$(MD5SUM)/# disabled/g' shrp/vendor/pb/build/tasks/cookies.mk
 
-        # FIX 2: Inject Encryption Dependencies
-        # This forces the build system to include libfscrypttwrp
+        # FIX 2: Inject ONLY the crypto flags (SDK version is already set by manifest)
         echo "TW_INCLUDE_CRYPTO := true" >> shrp/device/realme/spaced/BoardConfig.mk
         echo "TW_INCLUDE_FBE_METADATA_DECRYPT := true" >> shrp/device/realme/spaced/BoardConfig.mk
-        echo "PLATFORM_VERSION := 12.1" >> shrp/device/realme/spaced/BoardConfig.mk
-        echo "PLATFORM_SDK_VERSION := 32" >> shrp/device/realme/spaced/BoardConfig.mk
 
     - name: Build SHRP
       run: |
         cd shrp
-        # Remove the conflicting PBRP kernel task so SHRP's version takes priority
+        # FIX 3: Create the missing utils directory if it doesn't exist to prevent script errors
+        mkdir -p vendor/utils
+        touch vendor/utils/pb_devices.py 
+        
+        # Remove conflicting PBRP kernel tasks
         rm -f vendor/pb/build/tasks/kernel.mk
         
         source build/envsetup.sh
         export ALLOW_MISSING_DEPENDENCIES=true
         
-        # Attempt to lunch your device
+        # Lunch target - using the product name defined in your .mk files
         lunch twrp_pb_spaced-eng || lunch shrp_pb_spaced-eng || lunch pb_spaced-eng
         
-        # Start the actual build
         mka recoveryimage -j$(nproc --all)
 
     - name: Upload Recovery Artifacts
