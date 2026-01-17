@@ -12,34 +12,27 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Cleanup and Setup Environment
-      run: |
-        sudo apt-get update
-        # Install python2.7 and other build essentials (removed python-is-python2)
-        sudo apt-get install -y gperf gcc-multilib g++-multilib libc6-dev-i386 lib32ncurses5-dev x11proto-core-dev libx11-dev lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc unzip bc python2.7
-        
-        # MANUAL FIX: Create the 'python' symlink for Python 2.7
-        sudo ln -sf /usr/bin/python2.7 /usr/bin/python
-        
-        # INCREASE SWAP: Critical to prevent 'Lost Communication' (OOM) errors
-        sudo swapoff -a
-        sudo dd if=/dev/zero of=/swapfile bs=1G count=8
-        sudo chmod 600 /swapfile
-        sudo mkswap /swapfile
-        sudo swapon /swapfile
-
-        # Free up disk space (~70GB+ free)
-        sudo rm -rf /usr/share/dotnet /etc/mysql /usr/local/lib/android /opt/ghc /usr/local/share/powershell /usr/share/swift
-        docker rmi $(docker images -q) || true
-    
     - name: Maximize Build Space
       uses: easimon/maximize-build-space@master
       with:
         root-reserve-mb: 512
-        swap-size-mb: 1024
+        # We set swap here instead of manually via dd to avoid conflicts
+        swap-size-mb: 8192 
         remove-dotnet: 'true'
         remove-android: 'true'
         remove-haskell: 'true'
+
+    - name: Cleanup and Setup Environment
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gperf gcc-multilib g++-multilib libc6-dev-i386 lib32ncurses5-dev x11proto-core-dev libx11-dev lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc unzip bc python2.7
+        
+        # Setup Python symlink
+        sudo ln -sf /usr/bin/python2.7 /usr/bin/python
+        
+        # Cleanup remaining bloat
+        sudo rm -rf /usr/share/dotnet /etc/mysql /usr/local/share/powershell /usr/share/swift
+        docker rmi $(docker images -q) || true
 
     - name: Install Repo
       run: |
@@ -55,29 +48,32 @@ jobs:
         git config --global user.name "Github Action"
         git config --global user.email "action@github.com"
         repo init --depth=1 -u https://github.com/SHRP/manifest.git -b shrp-12.1
+        # Syncing only necessary projects to save space
         repo sync -j$(nproc --all) --force-sync --no-tags --no-clone-bundle
 
     - name: Clone Device Tree and Dependencies
       run: |
-        # 1. Clone your device tree
+        # 1. Clone device tree
         git clone https://github.com/${{ github.repository }} -b main shrp/device/realme/spaced
         
-        # 2. Clone PBRP Vendor (needed for your tree's config)
+        # 2. Clone PBRP Vendor
         git clone https://github.com/PitchBlackRecoveryProject/vendor_pb -b pb shrp/vendor/pb
 
-        # 3. MANUALLY CLONE THE MISSING CRYPTO LIB
-        # This ensures the source code for libfscrypt is actually there
-        git clone https://github.com/TeamWin/external_fscrypt -b android-12.1 shrp/external/fscrypt
+        # 3. FIX: Clone the CORRECTED Crypto Lib URL (Public)
+        # Most SHRP/TWRP 12.1 trees need 'external_libfscrypt'
+        git clone https://github.com/TeamWin/external_libfscrypt -b android-12.1 shrp/external/libfscrypt || \
+        git clone https://github.com/TeamWin/external_fscrypt -b android-12.1 shrp/external/libfscrypt
 
-        # 4. FIX: Rename the module so the build system finds 'libfscrypttwrp'
-        # This changes the internal name in the build file from libfscrypt to libfscrypttwrp
-        sed -i 's/name: "libfscrypt"/name: "libfscrypttwrp"/g' shrp/external/fscrypt/Android.bp
+        # 4. FIX: Rename module to 'libfscrypttwrp' to satisfy libfs_mgr dependency
+        if [ -f shrp/external/libfscrypt/Android.bp ]; then
+          sed -i 's/name: "libfscrypt"/name: "libfscrypttwrp"/g' shrp/external/libfscrypt/Android.bp
+        fi
 
         # 5. FIX: Obsolete MD5SUM
         sed -i 's/MD5SUM :=/MD5SUM_VAR :=/g' shrp/vendor/pb/build/tasks/cookies.mk
         sed -i 's/$(MD5SUM)/true/g' shrp/vendor/pb/build/tasks/cookies.mk
 
-        # 6. FIX: Inject Crypto flags at the TOP of BoardConfig
+        # 6. FIX: Inject Crypto flags
         echo "TW_INCLUDE_CRYPTO := true" > BoardConfig.tmp
         echo "TW_INCLUDE_FBE_METADATA_DECRYPT := true" >> BoardConfig.tmp
         cat shrp/device/realme/spaced/BoardConfig.mk >> BoardConfig.tmp
@@ -86,15 +82,19 @@ jobs:
     - name: Build SHRP
       run: |
         cd shrp
-        # Final cleanup of conflicting scripts
         mkdir -p vendor/utils
         echo "def main(): pass" > vendor/utils/pb_devices.py
         rm -f vendor/pb/build/tasks/kernel.mk
         
         source build/envsetup.sh
         export ALLOW_MISSING_DEPENDENCIES=true
-        
         lunch pb_spaced-eng
-        
-        # Build with 2 threads to prevent the "Lost Communication" crash
         mka recoveryimage -j2
+
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: SHRP-Recovery-Spaced
+        path: |
+          shrp/out/target/product/spaced/recovery.img
+          shrp/out/target/product/spaced/SHRP*.zip
